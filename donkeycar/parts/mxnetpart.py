@@ -12,6 +12,8 @@ import os
 import numpy as np
 import logging
 from PIL import Image
+from collections import namedtuple
+Batch = namedtuple('Batch', ['data'])
 
 
 head = '%(asctime)-15s %(message)s'
@@ -20,7 +22,12 @@ logging.basicConfig(level=logging.INFO, format=head)
 class MXNetPilot():
 
     def load(self, model_path):
-        self.model = mx.model.FeedForward.load(model_path)
+        f_params_file = model_path + "-best.params"
+        f_symbol_file = model_path + "-symbol.json"
+        sym, arg_params, aux_params = load_model(f_symbol_file, f_params_file)
+        self.model = mx.mod.Module(symbol=sym, label_names=None)
+        self.model.bind(for_training=False, data_shapes=[('data', (1, 3, 120, 160))])
+        self.model.set_params(arg_params, aux_params, allow_missing=True)
 
     def train(self, train_iter, val_iter, 
               saved_model_path, num_epoch=100, steps=100, train_split=0.8,
@@ -69,6 +76,27 @@ def getIter(df, batch):
 
     return mx.io.NDArrayIter({'data': np_images}, {'angle': a_labels, 'throttle': t_labels}, batch_size=batch)
 
+def load_model(s_fname, p_fname):
+    """
+    Load model checkpoint from file.
+    :return: (arg_params, aux_params)
+    arg_params : dict of str to NDArray
+        Model parameter, dict of name to NDArray of net's weights.
+    aux_params : dict of str to NDArray
+        Model parameter, dict of name to NDArray of net's auxiliary states.
+    """
+    symbol = mx.symbol.load(s_fname)
+    save_dict = mx.nd.load(p_fname)
+    arg_params = {}
+    aux_params = {}
+    for k, v in save_dict.items():
+        tp, name = k.split(':', 1)
+        if tp == 'arg':
+            arg_params[name] = v
+        if tp == 'aux':
+            aux_params[name] = v
+    return symbol, arg_params, aux_params
+
 
 class MxnetLinear(MXNetPilot):
     def __init__(self, model=None, num_outputs=None, *args, **kwargs):
@@ -78,12 +106,16 @@ class MxnetLinear(MXNetPilot):
         else:
             self.model = default_mxnet_linear()
     def run(self, img_arr):
+        #print(img_arr.shape)
+        img_arr = np.swapaxes(img_arr, 0, 2)
+        img_arr = np.swapaxes(img_arr, 1, 2)
         img_arr = img_arr.reshape((1,) + img_arr.shape)
         self.model.forward(Batch([mx.nd.array(img_arr)]))
-        outputs = self.model.get_outputs().asnumpy()
+        outputs = self.model.get_outputs()
         #print(len(outputs), outputs)
-        steering = outputs[0]
-        throttle = outputs[1]
+        steering = outputs[0].asnumpy()
+        throttle = outputs[1].asnumpy()
+
         return steering[0][0], throttle[0][0]
         
 def default_mxnet_linear(ctx=[mx.gpu(0)]):
