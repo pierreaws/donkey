@@ -23,12 +23,19 @@ import pytz
 
 
 '''
-    s3uploader performs rsync like operation from a source local directory to an s3 bucket. As a class it spawns 
-    worker processes that does the rsync periodically. Hashing filenames determines which work handles which files.    
+    s3uploader performs rsync like operations from a source local directory to an s3 bucket. Used as a class it spawns 
+    worker processes that does the rsync according to the time period you specify.  Workers divide the work amond themselves 
+    by hashing filenames.  It is recommended to use at least 5 workers to speed things up.  A periodicity of 10 seconds or
+    more is recommended.
+    
+    The S3Uploader compares local and remote file sizes to decide whether the remote file should be updated.  Optionally 
+    it can also compare last_modifed time.  However, S3Uploader is not time zone aware, therefore use that option only if 
+    the local and remote are in the same time zone, such as UTC.  For the purpose of robocar it is not necessary to compare
+    times.
 
     Usage as a class
     ----------------
-    process = S3Uploader(5, 10, "/home/ubuntu", "my_bucket" )
+    process = S3Uploader(5, 10, "/home/ubuntu", "my_bucket_name" )
     process.start()
     ..do something else for a while..
     process.shutdown()
@@ -36,7 +43,7 @@ import pytz
 
     Usage as a CLI
     --------------
-    pyton s3uploader 5 10 /home/ubuntu my_bucket
+    python s3uploader 5 10 /home/ubuntu my_bucket
 
 '''
 
@@ -113,6 +120,9 @@ class S3Uploader(multiprocessing.Process):
     # periodicity:    the interval in seconds between sync to s3
     # local_dir:      the local directory path to sync to s3:  "/home/ubuntu/d2/data"
     # remote_bucket:  the name of the bucket:  "robocar-data"
+    # compare_time:   compare last_modified times of local and remote, but only if same time zone
+    # debug:          print some useful verbose debugging information
+    #
     #
     def __init__(self, num_of_workers, periodicity, local_dir, remote_bucket, compare_time=False, debug=False):
         self.num_of_workers = num_of_workers
@@ -192,7 +202,7 @@ class S3Uploader(multiprocessing.Process):
 if __name__ == '__main__':
 
     if len(sys.argv) !=  5:
-        print("usage: python s3uploader <num of workers> <periodicity> <local_dir> <bucket>")
+        print("usage: python s3uploader <num of workers> <periodicity> <local_dir> <bucket> <compare time=False> <verbose debug=False>")
         exit(1)
 
     process = S3Uploader(int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4], False, True)
